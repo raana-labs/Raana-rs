@@ -472,7 +472,7 @@ pub fn compile_module(
 
     let obj = out_dir.join(format!("{}_rust.o", module_name));
     rename_entry_points(&obj, module_name)?;
-    apply_aliases(&obj, &paths.host_sym_map())?;
+    apply_aliases_with_chunk(&obj, &paths.host_sym_map(), paths.runtime.objcopy_chunk)?;
     Ok(obj)
 }
 
@@ -498,6 +498,11 @@ pub fn rename_entry_points(obj: &Path, module_name: &str) -> Result<(), String> 
 }
 
 pub fn apply_aliases(obj: &Path, map: &Path) -> Result<(), String> {
+    let chunk_size = config::RuntimeConfig::from_env().objcopy_chunk;
+    apply_aliases_with_chunk(obj, map, chunk_size)
+}
+
+pub fn apply_aliases_with_chunk(obj: &Path, map: &Path, chunk_size: usize) -> Result<(), String> {
     if !map.exists() {
         return Ok(());
     }
@@ -513,7 +518,6 @@ pub fn apply_aliases(obj: &Path, map: &Path) -> Result<(), String> {
         })
         .collect();
 
-    let chunk_size = config::RuntimeConfig::from_env().objcopy_chunk;
     for chunk in pairs.chunks(chunk_size) {
         let mut cmd = Command::new("llvm-objcopy");
         for (long, short) in chunk {
@@ -573,6 +577,15 @@ pub fn build_from_manifest(
     }
     runtime.kmsdk_rev = manifest.sdk.kmsdk.clone();
     runtime.rust_support_rev = manifest.sdk.rust_support.clone();
+    if let Some(path) = &manifest.sdk.rustc_path {
+        runtime.rustc_path = path.clone();
+    }
+    if let Some(target) = &manifest.sdk.rust_image_target {
+        runtime.rust_image_target = target.clone();
+    }
+    if let Some(chunk) = manifest.build.objcopy_chunk {
+        runtime.objcopy_chunk = chunk;
+    }
 
     let use_container_paths = match manifest.build.runner.as_deref() {
         Some("docker") => true,
@@ -595,7 +608,8 @@ pub fn build_from_manifest(
     let ko = paths
         .host_out_dir()
         .join(format!("{}.ko", manifest.package.name));
-    let stamp = paths.host_out_dir().join(".raana_stamp");
+    let stamp_dir = project_root.join(".raana_cache");
+    let stamp = stamp_dir.join(format!("{}.stamp", target.name()));
     let hash = build_hash(manifest, target);
 
     if ko.exists() && stamp.exists() {
@@ -620,7 +634,7 @@ pub fn build_from_manifest(
         link_module(&paths, &manifest.package.name)?;
     }
 
-    std::fs::create_dir_all(&paths.host_out_dir()).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&stamp_dir).map_err(|e| e.to_string())?;
     std::fs::write(&stamp, hash).map_err(|e| e.to_string())?;
 
     Ok(ko)

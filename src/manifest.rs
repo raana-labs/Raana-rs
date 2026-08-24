@@ -40,6 +40,10 @@ pub struct SdkConfig {
     pub runtime_dir: Option<String>,
     #[serde(default, rename = "image-prefix")]
     pub image_prefix: Option<String>,
+    #[serde(default, rename = "rustc-path")]
+    pub rustc_path: Option<String>,
+    #[serde(default, rename = "rust-image-target")]
+    pub rust_image_target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -50,6 +54,8 @@ pub struct BuildConfig {
     pub cache: String,
     #[serde(default)]
     pub runner: Option<String>,
+    #[serde(default, rename = "objcopy-chunk")]
+    pub objcopy_chunk: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

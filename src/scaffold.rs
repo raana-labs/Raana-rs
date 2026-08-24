@@ -17,7 +17,8 @@ pub fn create_project(name: &str, dir: &Path) -> Result<(), String> {
         makefile_with_deps(name, &Dependencies::default()),
     )
     .map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(".gitignore"), ".cache/\nout/\n").map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(".gitignore"), ".cache/\n.raana_cache/\nout/\n")
+        .map_err(|e| e.to_string())?;
     std::fs::write(dir.join("src/lib.rs"), lib_rs(name, &module_type))
         .map_err(|e| e.to_string())?;
     std::fs::write(dir.join("src/wrapper.c"), wrapper_c(&crate_name)).map_err(|e| e.to_string())?;
@@ -37,7 +38,8 @@ pub fn create_c_project(name: &str, dir: &Path) -> Result<(), String> {
         makefile_c_with_deps(name, &["src/main.c".to_string()], &Dependencies::default()),
     )
     .map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(".gitignore"), ".cache/\nout/\n").map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(".gitignore"), ".cache/\n.raana_cache/\nout/\n")
+        .map_err(|e| e.to_string())?;
     std::fs::write(dir.join("src/main.c"), c_main_c(name)).map_err(|e| e.to_string())?;
 
     Ok(())
@@ -57,8 +59,11 @@ pub fn makefile_from_manifest(manifest: &Manifest) -> String {
 
 fn lkm_toml(name: &str, sdk: &Sdk) -> String {
     format!(
-        "[package]\nname = \"{}\"\nrust = \"src/lib.rs\"\nwrapper = \"src/wrapper.c\"\nkunit = false\n\n[sdk]\nkmsdk = \"{}\"\nrust-support = \"{}\"\n\n[build]\ntargets = [\"android16-6.12\"]\ncache = \".cache\"\n",
-        name, sdk.kmsdk_rev, sdk.rust_support_rev
+        "[package]\nname = \"{}\"\nrust = \"src/lib.rs\"\nwrapper = \"src/wrapper.c\"\nkunit = false\n\n[sdk]\nkmsdk = \"{}\"\nrust-support = \"{}\"\n\n[build]\ntargets = [\"{}\"]\ncache = \".cache\"\n",
+        name,
+        sdk.kmsdk_rev,
+        sdk.rust_support_rev,
+        crate::config::DEFAULT_TARGET
     )
 }
 
@@ -136,8 +141,11 @@ fn makefile_c_with_deps(name: &str, sources: &[String], deps: &Dependencies) -> 
 
 fn c_lkm_toml(name: &str, sdk: &Sdk) -> String {
     format!(
-        "[package]\nname = \"{}\"\nlanguage = \"c\"\nsources = [\"src/main.c\"]\n\n[sdk]\nkmsdk = \"{}\"\nrust-support = \"{}\"\n\n[build]\ntargets = [\"android16-6.12\"]\ncache = \".cache\"\n",
-        name, sdk.kmsdk_rev, sdk.rust_support_rev
+        "[package]\nname = \"{}\"\nlanguage = \"c\"\nsources = [\"src/main.c\"]\n\n[sdk]\nkmsdk = \"{}\"\nrust-support = \"{}\"\n\n[build]\ntargets = [\"{}\"]\ncache = \".cache\"\n",
+        name,
+        sdk.kmsdk_rev,
+        sdk.rust_support_rev,
+        crate::config::DEFAULT_TARGET
     )
 }
 
