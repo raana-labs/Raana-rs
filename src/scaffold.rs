@@ -15,7 +15,7 @@ pub fn create_project(name: &str, dir: &Path, cfg: &ScaffoldConfig) -> Result<()
     std::fs::write(dir.join("deps.lst"), deps_lst(&sdk)).map_err(|e| e.to_string())?;
     std::fs::write(
         dir.join("Makefile"),
-        makefile_with_deps(name, &Dependencies::default()),
+        makefile_with_deps(name, &Dependencies::default(), dir)?,
     )
     .map_err(|e| e.to_string())?;
     std::fs::write(dir.join(".gitignore"), ".cache/\n.raana_cache/\nout/\n")
@@ -37,7 +37,12 @@ pub fn create_c_project(name: &str, dir: &Path, cfg: &ScaffoldConfig) -> Result<
     std::fs::write(dir.join("deps.lst"), c_deps_lst()).map_err(|e| e.to_string())?;
     std::fs::write(
         dir.join("Makefile"),
-        makefile_c_with_deps(name, &["src/main.c".to_string()], &Dependencies::default()),
+        makefile_c_with_deps(
+            name,
+            &["src/main.c".to_string()],
+            &Dependencies::default(),
+            dir,
+        )?,
     )
     .map_err(|e| e.to_string())?;
     std::fs::write(dir.join(".gitignore"), ".cache/\n.raana_cache/\nout/\n")
@@ -47,15 +52,16 @@ pub fn create_c_project(name: &str, dir: &Path, cfg: &ScaffoldConfig) -> Result<
     Ok(())
 }
 
-pub fn makefile_from_manifest(manifest: &Manifest) -> String {
+pub fn makefile_from_manifest(manifest: &Manifest, project_root: &Path) -> Result<String, String> {
     if manifest.package.language == "c" {
         makefile_c_with_deps(
             &manifest.package.name,
             &manifest.package.sources,
             &manifest.dependencies,
+            project_root,
         )
     } else {
-        makefile_with_deps(&manifest.package.name, &manifest.dependencies)
+        makefile_with_deps(&manifest.package.name, &manifest.dependencies, project_root)
     }
 }
 
@@ -73,25 +79,29 @@ fn deps_lst(sdk: &Sdk) -> String {
     format!("# <name> <rev>\nrust_support {}\n", sdk.rust_support_rev)
 }
 
-fn makefile_with_deps(name: &str, deps: &Dependencies) -> String {
+fn makefile_with_deps(
+    name: &str,
+    deps: &Dependencies,
+    project_root: &Path,
+) -> Result<String, String> {
     let crate_name = name.replace('-', "_");
 
     let mut objs = vec![
         format!("{}_rust.o", crate_name),
         "src/wrapper.o".to_string(),
     ];
+    let mut includes = Vec::new();
+
     for dep in deps.c.values() {
         for obj in &dep.objs {
             objs.push(format!("{}/{}", dep.path, obj));
         }
-    }
-
-    let mut includes = Vec::new();
-    for dep in deps.c.values() {
         for inc in &dep.includes {
             includes.push(format!("ccflags-y += -I$(src)/{}/{}", dep.path, inc));
         }
     }
+
+    collect_kmsdk_deps(project_root, deps, &mut objs, &mut includes)?;
 
     let objs_line = objs.join(" ");
     let includes_lines = if includes.is_empty() {
@@ -100,31 +110,36 @@ fn makefile_with_deps(name: &str, deps: &Dependencies) -> String {
         includes.join("\n")
     };
 
-    format!(
+    Ok(format!(
         "# SPDX-License-Identifier: GPL-2.0-only\n\nobj-m := {name}.o\n\nKDIR := $(KDIR)\nMDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))\nODIR := $(MDIR)/out/$(VER)\n\n{name}-y := {objs_line}\n\nccflags-y += -std=gnu11\nccflags-y += -Wno-declaration-after-statement\nccflags-y += -Wno-unused-variable\nccflags-y += -Wno-unused-function\nccflags-y += -Wno-strict-prototypes\n{includes_lines}\n\nall:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) modules\nclean:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) clean\n\n$(obj)/%.o: $(src)/%.c $(recordmcount_source) FORCE\n\t$(call if_changed_rule,cc_o_c)\n\t$(call cmd,force_checksrc)\n",
         name = name,
         objs_line = objs_line,
         includes_lines = includes_lines
-    )
+    ))
 }
 
-fn makefile_c_with_deps(name: &str, sources: &[String], deps: &Dependencies) -> String {
+fn makefile_c_with_deps(
+    name: &str,
+    sources: &[String],
+    deps: &Dependencies,
+    project_root: &Path,
+) -> Result<String, String> {
     let mut objs = sources
         .iter()
         .map(|s| s.trim_end_matches(".c").to_string() + ".o")
         .collect::<Vec<_>>();
+    let mut includes = Vec::new();
+
     for dep in deps.c.values() {
         for obj in &dep.objs {
             objs.push(format!("{}/{}", dep.path, obj));
         }
-    }
-
-    let mut includes = Vec::new();
-    for dep in deps.c.values() {
         for inc in &dep.includes {
             includes.push(format!("ccflags-y += -I$(src)/{}/{}", dep.path, inc));
         }
     }
+
+    collect_kmsdk_deps(project_root, deps, &mut objs, &mut includes)?;
 
     let objs_line = objs.join(" ");
     let includes_lines = if includes.is_empty() {
@@ -133,12 +148,68 @@ fn makefile_c_with_deps(name: &str, sources: &[String], deps: &Dependencies) -> 
         includes.join("\n")
     };
 
-    format!(
+    Ok(format!(
         "# SPDX-License-Identifier: GPL-2.0-only\n\nobj-m := {name}.o\n\nKDIR := $(KDIR)\nMDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))\nODIR := $(MDIR)/out/$(VER)\n\n{name}-y := {objs_line}\n\nccflags-y += -std=gnu11\nccflags-y += -Wno-declaration-after-statement\nccflags-y += -Wno-unused-variable\nccflags-y += -Wno-unused-function\nccflags-y += -Wno-strict-prototypes\n{includes_lines}\n\nall:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) modules\nclean:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) clean\n\n$(obj)/%.o: $(src)/%.c $(recordmcount_source) FORCE\n\t$(call if_changed_rule,cc_o_c)\n\t$(call cmd,force_checksrc)\n",
         name = name,
         objs_line = objs_line,
         includes_lines = includes_lines
-    )
+    ))
+}
+
+fn collect_kmsdk_deps(
+    project_root: &Path,
+    deps: &Dependencies,
+    objs: &mut Vec<String>,
+    includes: &mut Vec<String>,
+) -> Result<(), String> {
+    let mut seen = Vec::new();
+    for lib in &deps.kmsdk.libs {
+        add_kmsdk_lib(lib, project_root, objs, includes, &mut seen)?;
+    }
+    Ok(())
+}
+
+fn add_kmsdk_lib(
+    lib: &str,
+    project_root: &Path,
+    objs: &mut Vec<String>,
+    includes: &mut Vec<String>,
+    seen: &mut Vec<String>,
+) -> Result<(), String> {
+    if seen.iter().any(|s| s == lib) {
+        return Ok(());
+    }
+    seen.push(lib.to_string());
+
+    let meta = project_root.join("deps").join(lib).join("deps.mk");
+    let content =
+        std::fs::read_to_string(&meta).map_err(|e| format!("missing {} deps.mk: {}", lib, e))?;
+
+    let mut lib_objs = Vec::new();
+    let mut lib_includes = Vec::new();
+    let mut lib_deps = Vec::new();
+
+    for line in content.lines() {
+        if let Some(v) = line.strip_prefix("DEPS_LIB_OBJS := ") {
+            lib_objs = v.split_whitespace().map(|s| s.to_string()).collect();
+        } else if let Some(v) = line.strip_prefix("DEPS_LIB_INCS := ") {
+            lib_includes = v.split_whitespace().map(|s| s.to_string()).collect();
+        } else if let Some(v) = line.strip_prefix("DEPS_LIB_DEPS := ") {
+            lib_deps = v.split_whitespace().map(|s| s.to_string()).collect();
+        }
+    }
+
+    for obj in lib_objs {
+        objs.push(format!("deps/{}/{}", lib, obj));
+    }
+    for inc in lib_includes {
+        includes.push(format!("ccflags-y += -I$(src)/deps/{}/{}", lib, inc));
+    }
+    for dep in lib_deps {
+        add_kmsdk_lib(&dep, project_root, objs, includes, seen)?;
+    }
+
+    Ok(())
 }
 
 fn c_lkm_toml(name: &str, sdk: &Sdk) -> String {

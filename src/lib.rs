@@ -378,16 +378,29 @@ pub fn fetch_project(project_root: &Path, manifest: &Manifest) -> Result<(), Str
         project_root,
     )?;
     let deps_lst = project_root.join("deps.lst");
-    if !deps_lst.exists() {
-        std::fs::write(
-            &deps_lst,
-            format!(
-                "# <name> <rev>\nrust_support {}\n",
-                manifest.sdk.rust_support
-            ),
-        )
-        .map_err(|e| e.to_string())?;
+    let mut deps_content = std::fs::read_to_string(&deps_lst).unwrap_or_default();
+    if deps_content.is_empty() {
+        deps_content.push_str("# <name> <rev>\n");
     }
+
+    if manifest.package.language != "c" {
+        let has_rust_support = deps_content
+            .lines()
+            .any(|line| line.starts_with("rust_support "));
+        if !has_rust_support {
+            deps_content.push_str(&format!("rust_support {}\n", manifest.sdk.rust_support));
+        }
+    }
+
+    for lib in &manifest.dependencies.kmsdk.libs {
+        let prefix = format!("{} ", lib);
+        let has = deps_content.lines().any(|line| line.starts_with(&prefix));
+        if !has {
+            deps_content.push_str(&format!("{}\n", lib));
+        }
+    }
+
+    std::fs::write(&deps_lst, deps_content).map_err(|e| e.to_string())?;
 
     run_cmd(
         sdk_dir.join("scripts/sdk").to_str().ok_or("bad path")?,
@@ -689,7 +702,7 @@ pub fn ensure_rust_support(paths: &BuildPaths, _sdk: &Sdk) -> Result<(), String>
 }
 
 fn sync_makefile(manifest: &Manifest, project_root: &Path) -> Result<(), String> {
-    let content = crate::scaffold::makefile_from_manifest(manifest);
+    let content = crate::scaffold::makefile_from_manifest(manifest, project_root)?;
     let path = project_root.join("Makefile");
     let old = std::fs::read_to_string(&path).unwrap_or_default();
     if old != content {
