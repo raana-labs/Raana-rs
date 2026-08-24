@@ -3,13 +3,11 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub mod config;
 pub mod manifest;
 pub mod scaffold;
 
 use manifest::Manifest;
-
-pub const LOCAL_DDK_IMAGE_PREFIX: &str = "docker.cnb.cool/ylarod/ddk/ddk-min:";
-pub const RUST_DDK_IMAGE: &str = "docker.cnb.cool/ylarod/ddk/ddk-min:android16-6.12";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GkiTarget {
@@ -52,11 +50,15 @@ impl GkiTarget {
     }
 
     pub fn ddk_image(self) -> String {
-        format!("{}{}", LOCAL_DDK_IMAGE_PREFIX, self.name())
+        format!("{}{}", config::LOCAL_DDK_IMAGE_PREFIX, self.name())
     }
 
-    pub fn rust_image(self) -> &'static str {
-        RUST_DDK_IMAGE
+    pub fn rust_image(self) -> String {
+        format!(
+            "{}{}",
+            config::LOCAL_DDK_IMAGE_PREFIX,
+            config::RUST_IMAGE_TARGET
+        )
     }
 
     pub fn kdir(self) -> String {
@@ -98,8 +100,8 @@ pub struct Sdk {
 impl Sdk {
     pub fn current() -> Sdk {
         Sdk {
-            kmsdk_rev: "ddda0b34b9f89f784e3c92f256a00a27a5198d42".to_string(),
-            rust_support_rev: "dc55b5e7b25df374a8d446a5f9e4c73d3e818a38".to_string(),
+            kmsdk_rev: config::DEFAULT_KMSDK_REV.to_string(),
+            rust_support_rev: config::DEFAULT_RUST_SUPPORT_REV.to_string(),
         }
     }
 }
@@ -141,7 +143,7 @@ impl BuildPaths {
     }
 
     pub fn rust_image(&self) -> String {
-        format!("{}android16-6.12", self.image_prefix)
+        format!("{}{}", self.image_prefix, config::RUST_IMAGE_TARGET)
     }
 
     pub fn project_path(&self) -> String {
@@ -345,7 +347,7 @@ impl Runner {
 
 pub fn has_ddk_host(target: GkiTarget) -> bool {
     Path::new("/opt/ddk/kdir").join(target.name()).exists()
-        && Path::new("/opt/ddk/rust/rust-1.82.0/bin/rustc").exists()
+        && Path::new(config::RUSTC_PATH).exists()
 }
 
 pub fn fetch_project(project_root: &Path, manifest: &Manifest) -> Result<(), String> {
@@ -421,7 +423,7 @@ pub fn compile_module(
     std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
 
     let mut args = vec![
-        "/opt/ddk/rust/rust-1.82.0/bin/rustc".to_string(),
+        config::RUSTC_PATH.to_string(),
         "--edition=2021".to_string(),
         "-Cpanic=abort".to_string(),
         "-Cembed-bitcode=n".to_string(),
@@ -508,7 +510,7 @@ pub fn apply_aliases(obj: &Path, map: &Path) -> Result<(), String> {
         })
         .collect();
 
-    for chunk in pairs.chunks(500) {
+    for chunk in pairs.chunks(config::OBJCOPY_CHUNK) {
         let mut cmd = Command::new("llvm-objcopy");
         for (long, short) in chunk {
             cmd.arg("--redefine-sym").arg(format!("{}={}", long, short));
@@ -565,7 +567,7 @@ pub fn build_from_manifest(
         .sdk
         .image_prefix
         .clone()
-        .unwrap_or_else(|| LOCAL_DDK_IMAGE_PREFIX.to_string());
+        .unwrap_or_else(|| config::LOCAL_DDK_IMAGE_PREFIX.to_string());
     let use_container_paths = match manifest.build.runner.as_deref() {
         Some("docker") => true,
         Some("host") => false,

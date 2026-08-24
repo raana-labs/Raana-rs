@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{GkiTarget, Sdk};
+use crate::{config, GkiTarget, Sdk};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -88,15 +88,15 @@ fn default_wrapper() -> String {
 }
 
 fn default_kmsdk() -> String {
-    Sdk::current().kmsdk_rev
+    config::DEFAULT_KMSDK_REV.to_string()
 }
 
 fn default_rust_support() -> String {
-    Sdk::current().rust_support_rev
+    config::DEFAULT_RUST_SUPPORT_REV.to_string()
 }
 
 fn default_cache() -> String {
-    ".cache".to_string()
+    config::DEFAULT_CACHE_DIR.to_string()
 }
 
 impl Manifest {

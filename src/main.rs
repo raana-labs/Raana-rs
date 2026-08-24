@@ -59,7 +59,7 @@ fn build_with_flags(args: &[String]) -> Result<(), String> {
                 .targets()
                 .first()
                 .map(|t| t.name().to_string())
-                .unwrap_or_else(|| "android16-6.12".to_string())
+                .unwrap_or_else(|| raana::config::DEFAULT_TARGET.to_string())
         });
         let target = GkiTarget::from_name(&target_name)
             .ok_or_else(|| format!("unknown target {}", target_name))?;
@@ -68,7 +68,8 @@ fn build_with_flags(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
-    let target_name = find_arg(args, "--target").unwrap_or_else(|| "android16-6.12".to_string());
+    let target_name =
+        find_arg(args, "--target").unwrap_or_else(|| raana::config::DEFAULT_TARGET.to_string());
     let target = GkiTarget::from_name(&target_name)
         .ok_or_else(|| format!("unknown target {}", target_name))?;
     let project = find_arg(args, "--project")
@@ -101,7 +102,7 @@ fn build_with_flags(args: &[String]) -> Result<(), String> {
         target,
         sdk.rust_support_rev,
         None,
-        raana::LOCAL_DDK_IMAGE_PREFIX.to_string(),
+        raana::config::LOCAL_DDK_IMAGE_PREFIX.to_string(),
         use_container_paths,
     );
 
