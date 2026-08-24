@@ -25,7 +25,8 @@ fn print_targets() {
 
 fn print_usage() {
     println!("usage: raana <targets|fetch|new|build>");
-    println!("  new [--c] <name>");
+    println!("  new [--c] [--author NAME] [--email EMAIL] [--year YEAR] [--license SPDX]");
+    println!("      [--header-file PATH] [--header-c-file PATH] [--header-rust-file PATH] <name>");
     println!("  build [--manifest PATH] [--target NAME] [--project DIR] [--cache DIR]");
     println!("        [--module NAME] [--rust-src REL] [--kunit] [--docker|--host]");
 }
@@ -43,6 +44,23 @@ fn find_arg(args: &[String], name: &str) -> Option<String> {
 
 fn has_flag(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
+}
+
+fn find_positional(args: &[String], value_flags: &[&str]) -> Option<String> {
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg.starts_with("--") {
+            if value_flags.contains(&arg.as_str()) {
+                i += 2;
+            } else {
+                i += 1;
+            }
+        } else {
+            return Some(arg.clone());
+        }
+    }
+    None
 }
 
 fn build_with_flags(args: &[String]) -> Result<(), String> {
@@ -120,21 +138,58 @@ fn main() {
         "targets" => print_targets(),
         "new" => {
             let c = has_flag(&args[1..], "--c");
-            let name = args
-                .iter()
-                .skip(1)
-                .find(|a| !a.starts_with('-'))
-                .map(String::as_str)
-                .unwrap_or("");
+            let value_flags = [
+                "--author",
+                "--email",
+                "--year",
+                "--license",
+                "--header-file",
+                "--header-c-file",
+                "--header-rust-file",
+            ];
+            let name = find_positional(&args[1..], &value_flags).unwrap_or_default();
             if name.is_empty() {
                 print_usage();
                 std::process::exit(1);
             }
-            let dir = PathBuf::from(name);
+
+            let mut cfg = raana::config::ScaffoldConfig::from_env();
+            cfg.apply_user_config();
+
+            if let Some(author) = find_arg(&args[1..], "--author") {
+                cfg.author = author;
+            }
+            if let Some(email) = find_arg(&args[1..], "--email") {
+                cfg.email = email;
+            }
+            if let Some(year) = find_arg(&args[1..], "--year") {
+                cfg.year = year;
+            }
+            if let Some(spdx) = find_arg(&args[1..], "--license") {
+                cfg.license_spdx = spdx;
+            }
+            if let Some(path) = find_arg(&args[1..], "--header-file") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    cfg.header_c = content.clone();
+                    cfg.header_rust = content;
+                }
+            }
+            if let Some(path) = find_arg(&args[1..], "--header-c-file") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    cfg.header_c = content;
+                }
+            }
+            if let Some(path) = find_arg(&args[1..], "--header-rust-file") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    cfg.header_rust = content;
+                }
+            }
+
+            let dir = PathBuf::from(&name);
             let result = if c {
-                create_c_project(name, &dir)
+                create_c_project(&name, &dir, &cfg)
             } else {
-                create_project(name, &dir)
+                create_project(&name, &dir, &cfg)
             };
             if let Err(e) = result {
                 eprintln!("new failed: {}", e);
