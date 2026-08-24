@@ -1,0 +1,18 @@
+[package]
+name = "raana"
+version = "0.1.0"
+edition = "2021"
+description = "Rust LKM build orchestration for rust_support"
+license = "GPL-2.0-only"
+
+[[bin]]
+name = "raana"
+path = "src/main.rs"
+
+[lib]
+name = "raana"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"

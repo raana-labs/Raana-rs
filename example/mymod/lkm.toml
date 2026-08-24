@@ -1,0 +1,13 @@
+[package]
+name = "mymod"
+rust = "src/lib.rs"
+wrapper = "src/wrapper.c"
+kunit = false
+
+[sdk]
+kmsdk = "ddda0b34b9f89f784e3c92f256a00a27a5198d42"
+rust-support = "dc55b5e7b25df374a8d446a5f9e4c73d3e818a38"
+
+[build]
+targets = ["android13-5.15"]
+cache = ".cache"
