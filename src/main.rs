@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use raana::manifest::Manifest;
 use raana::scaffold::{create_c_project, create_project};
@@ -24,7 +25,9 @@ fn print_targets() {
 }
 
 fn print_usage() {
-    println!("usage: raana <targets|fetch|new|build>");
+    println!("usage: raana <targets|fetch|install|sdk|doctor|new|build>");
+    println!("  sdk <args...>");
+    println!("  doctor");
     println!("  new [--c] [--author NAME] [--email EMAIL] [--year YEAR] [--license SPDX]");
     println!("      [--header-file PATH] [--header-c-file PATH] [--header-rust-file PATH] <name>");
     println!("  build [--manifest PATH] [--target NAME] [--project DIR] [--cache DIR]");
@@ -130,6 +133,84 @@ fn build_with_flags(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn run_fetch(args: &[String]) -> Result<(), String> {
+    let manifest_path = find_arg(args, "--manifest")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("lkm.toml"));
+    let manifest_path = std::fs::canonicalize(&manifest_path)
+        .map_err(|e| format!("cannot open manifest: {}", e))?;
+    let manifest = Manifest::load(&manifest_path)?;
+    let project = manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    fetch_project(&project, &manifest)
+}
+
+fn run_sdk(args: &[String]) -> Result<(), String> {
+    let project = if let Some(path) = find_arg(args, "--manifest") {
+        let path = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
+        path.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf()
+    } else {
+        std::env::current_dir().map_err(|e| e.to_string())?
+    };
+
+    let sdk_script = project.join(".sdk/scripts/sdk");
+    if !sdk_script.exists() {
+        return Err("SDK not installed, run `raana fetch` first".to_string());
+    }
+
+    let mut sdk_args = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--manifest" {
+            i += 2;
+        } else {
+            sdk_args.push(args[i].as_str());
+            i += 1;
+        }
+    }
+
+    let status = Command::new(&sdk_script)
+        .args(&sdk_args)
+        .current_dir(&project)
+        .status()
+        .map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("sdk failed with {}", status))
+    }
+}
+
+fn run_doctor() -> Result<(), String> {
+    let project = std::env::current_dir().map_err(|e| e.to_string())?;
+    let sdk_script = project.join(".sdk/scripts/sdk");
+    let deps_lst = project.join("deps.lst");
+    let rust_support = project.join("deps/rust_support");
+
+    println!("project {}", project.display());
+    if sdk_script.exists() {
+        println!("sdk installed");
+    } else {
+        println!("sdk missing");
+    }
+    if deps_lst.exists() {
+        println!("deps.lst present");
+    } else {
+        println!("deps.lst missing");
+    }
+    if rust_support.exists() {
+        println!("rust_support present");
+    } else {
+        println!("rust_support missing");
+    }
+
+    Ok(())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("");
@@ -197,30 +278,21 @@ fn main() {
             }
             println!("created {}", dir.display());
         }
-        "fetch" => {
-            let manifest_path = find_arg(&args[1..], "--manifest")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("lkm.toml"));
-            let manifest_path = match std::fs::canonicalize(&manifest_path) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("fetch: cannot open manifest: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            let manifest = match Manifest::load(&manifest_path) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("fetch: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            let project = manifest_path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf();
-            if let Err(e) = fetch_project(&project, &manifest) {
+        "fetch" | "install" => {
+            if let Err(e) = run_fetch(&args[1..]) {
                 eprintln!("fetch failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        "sdk" => {
+            if let Err(e) = run_sdk(&args[1..]) {
+                eprintln!("sdk failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        "doctor" => {
+            if let Err(e) = run_doctor() {
+                eprintln!("doctor failed: {}", e);
                 std::process::exit(1);
             }
         }
