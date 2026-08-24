@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use raana::manifest::Manifest;
 use raana::scaffold::{create_c_project, create_project};
 use raana::{
-    build_from_manifest, compile_module, fetch_project, link_module, BuildPaths, GkiTarget, Sdk,
+    build_from_manifest, compile_module, fetch_project, link_module, BuildPaths, GkiTarget,
 };
 
 fn print_targets() {
@@ -84,15 +84,15 @@ fn build_with_flags(args: &[String]) -> Result<(), String> {
     let rust_src = find_arg(args, "--rust-src").unwrap_or_else(|| "src/lib.rs".to_string());
     let kunit = has_flag(args, "--kunit");
 
-    let sdk = Sdk::current();
+    let runtime = raana::config::RuntimeConfig::from_env();
     let use_container_paths = if has_flag(args, "--docker") {
         true
     } else if has_flag(args, "--host") {
         false
     } else {
-        !raana::has_ddk_host(target)
+        !raana::has_ddk_host(target, &runtime)
     };
-    if !use_container_paths && !raana::has_ddk_host(target) {
+    if !use_container_paths && !raana::has_ddk_host(target, &runtime) {
         return Err("host mode requires /opt/ddk with kdir and rust toolchain".to_string());
     }
     let project = project.canonicalize().map_err(|e| e.to_string())?;
@@ -100,9 +100,9 @@ fn build_with_flags(args: &[String]) -> Result<(), String> {
         project,
         cache,
         target,
-        sdk.rust_support_rev,
+        runtime.rust_support_rev.clone(),
         None,
-        raana::config::LOCAL_DDK_IMAGE_PREFIX.to_string(),
+        runtime,
         use_container_paths,
     );
 

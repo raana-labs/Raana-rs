@@ -88,15 +88,15 @@ fn default_wrapper() -> String {
 }
 
 fn default_kmsdk() -> String {
-    config::DEFAULT_KMSDK_REV.to_string()
+    config::RuntimeConfig::from_env().kmsdk_rev
 }
 
 fn default_rust_support() -> String {
-    config::DEFAULT_RUST_SUPPORT_REV.to_string()
+    config::RuntimeConfig::from_env().rust_support_rev
 }
 
 fn default_cache() -> String {
-    config::DEFAULT_CACHE_DIR.to_string()
+    config::RuntimeConfig::from_env().cache_dir
 }
 
 impl Manifest {

@@ -99,9 +99,10 @@ pub struct Sdk {
 
 impl Sdk {
     pub fn current() -> Sdk {
+        let cfg = config::RuntimeConfig::from_env();
         Sdk {
-            kmsdk_rev: config::DEFAULT_KMSDK_REV.to_string(),
-            rust_support_rev: config::DEFAULT_RUST_SUPPORT_REV.to_string(),
+            kmsdk_rev: cfg.kmsdk_rev,
+            rust_support_rev: cfg.rust_support_rev,
         }
     }
 }
@@ -113,7 +114,7 @@ pub struct BuildPaths {
     pub target: GkiTarget,
     pub rust_support_rev: String,
     pub runtime_dir: Option<PathBuf>,
-    pub image_prefix: String,
+    pub runtime: config::RuntimeConfig,
     pub use_container_paths: bool,
 }
 
@@ -124,7 +125,7 @@ impl BuildPaths {
         target: GkiTarget,
         rust_support_rev: String,
         runtime_dir: Option<PathBuf>,
-        image_prefix: String,
+        runtime: config::RuntimeConfig,
         use_container_paths: bool,
     ) -> BuildPaths {
         BuildPaths {
@@ -133,17 +134,20 @@ impl BuildPaths {
             target,
             rust_support_rev,
             runtime_dir,
-            image_prefix,
+            runtime,
             use_container_paths,
         }
     }
 
     pub fn ddk_image(&self) -> String {
-        format!("{}{}", self.image_prefix, self.target.name())
+        format!("{}{}", self.runtime.image_prefix, self.target.name())
     }
 
     pub fn rust_image(&self) -> String {
-        format!("{}{}", self.image_prefix, config::RUST_IMAGE_TARGET)
+        format!(
+            "{}{}",
+            self.runtime.image_prefix, self.runtime.rust_image_target
+        )
     }
 
     pub fn project_path(&self) -> String {
@@ -345,9 +349,8 @@ impl Runner {
     }
 }
 
-pub fn has_ddk_host(target: GkiTarget) -> bool {
-    Path::new("/opt/ddk/kdir").join(target.name()).exists()
-        && Path::new(config::RUSTC_PATH).exists()
+pub fn has_ddk_host(target: GkiTarget, cfg: &config::RuntimeConfig) -> bool {
+    Path::new("/opt/ddk/kdir").join(target.name()).exists() && Path::new(&cfg.rustc_path).exists()
 }
 
 pub fn fetch_project(project_root: &Path, manifest: &Manifest) -> Result<(), String> {
@@ -423,7 +426,7 @@ pub fn compile_module(
     std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
 
     let mut args = vec![
-        config::RUSTC_PATH.to_string(),
+        paths.runtime.rustc_path.clone(),
         "--edition=2021".to_string(),
         "-Cpanic=abort".to_string(),
         "-Cembed-bitcode=n".to_string(),
@@ -510,7 +513,8 @@ pub fn apply_aliases(obj: &Path, map: &Path) -> Result<(), String> {
         })
         .collect();
 
-    for chunk in pairs.chunks(config::OBJCOPY_CHUNK) {
+    let chunk_size = config::RuntimeConfig::from_env().objcopy_chunk;
+    for chunk in pairs.chunks(chunk_size) {
         let mut cmd = Command::new("llvm-objcopy");
         for (long, short) in chunk {
             cmd.arg("--redefine-sym").arg(format!("{}={}", long, short));
@@ -563,17 +567,19 @@ pub fn build_from_manifest(
             .canonicalize()
             .unwrap_or_else(|_| PathBuf::from(d))
     });
-    let image_prefix = manifest
-        .sdk
-        .image_prefix
-        .clone()
-        .unwrap_or_else(|| config::LOCAL_DDK_IMAGE_PREFIX.to_string());
+    let mut runtime = config::RuntimeConfig::from_env();
+    if let Some(prefix) = &manifest.sdk.image_prefix {
+        runtime.image_prefix = prefix.clone();
+    }
+    runtime.kmsdk_rev = manifest.sdk.kmsdk.clone();
+    runtime.rust_support_rev = manifest.sdk.rust_support.clone();
+
     let use_container_paths = match manifest.build.runner.as_deref() {
         Some("docker") => true,
         Some("host") => false,
-        _ => !has_ddk_host(target),
+        _ => !has_ddk_host(target, &runtime),
     };
-    if !use_container_paths && !has_ddk_host(target) {
+    if !use_container_paths && !has_ddk_host(target, &runtime) {
         return Err("host mode requires /opt/ddk with kdir and rust toolchain".to_string());
     }
     let paths = BuildPaths::new(
@@ -582,7 +588,7 @@ pub fn build_from_manifest(
         target,
         manifest.sdk.rust_support.clone(),
         runtime_dir,
-        image_prefix,
+        runtime,
         use_container_paths,
     );
 
