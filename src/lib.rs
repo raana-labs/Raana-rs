@@ -743,11 +743,13 @@ fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String>
         .artifact_repo
         .clone()
         .unwrap_or_else(|| "raana-labs/raana".to_string());
-    let tag = manifest
-        .sdk
-        .artifact_tag
-        .clone()
-        .unwrap_or_else(|| format!("rust-support-v{}", env!("CARGO_PKG_VERSION")));
+    let tag = manifest.sdk.artifact_tag.clone().unwrap_or_else(|| {
+        format!(
+            "rust-support-v{}-{}",
+            env!("CARGO_PKG_VERSION"),
+            manifest.sdk.rust_support
+        )
+    });
 
     let local_root = Path::new(&repo);
     let src_dir = if local_root.exists() {
