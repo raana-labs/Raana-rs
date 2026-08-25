@@ -2,7 +2,7 @@ name: Release Runtime
 
 on:
   push:
-    tags: ['rust-support-*']
+    tags: ['rust-support-v*']
 
 jobs:
   build-runtime:

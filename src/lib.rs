@@ -747,7 +747,7 @@ fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String>
         .sdk
         .artifact_tag
         .clone()
-        .unwrap_or_else(|| format!("rust-support-{}", manifest.sdk.rust_support));
+        .unwrap_or_else(|| format!("rust-support-v{}", env!("CARGO_PKG_VERSION")));
 
     let local_root = Path::new(&repo);
     let src_dir = if local_root.exists() {
