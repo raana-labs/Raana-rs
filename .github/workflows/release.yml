@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-runtime:
+    strategy:
+      matrix:
+        kmi:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - android16-6.12
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git clone https://github.com/Dere3046/RaanaSDK.git rust_support
+      - run: git -C rust_support checkout dc55b5e7b25df374a8d446a5f9e4c73d3e818a38
+      - run: cd rust_support && ./scripts/build-ddkk.sh ${{ matrix.kmi }}
+      - run: tar -C rust_support/out/${{ matrix.kmi }} -czf rust-support-${{ matrix.kmi }}.tar.gz .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: rust-support-${{ matrix.kmi }}.tar.gz

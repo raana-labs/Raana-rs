@@ -673,7 +673,7 @@ pub fn ensure_rust_support(paths: &BuildPaths, manifest: &Manifest) -> Result<()
         ));
     }
 
-    if manifest.sdk.prebuilt {
+    if config::prebuilt_effective(manifest.sdk.prebuilt) {
         fetch_prebuilt(paths, manifest)?;
         return Ok(());
     }

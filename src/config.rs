@@ -151,6 +151,28 @@ struct UserToml {
     author: Option<UserAuthor>,
     #[serde(default)]
     license: Option<UserLicense>,
+    #[serde(default)]
+    sdk: Option<UserSdk>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UserSdk {
+    #[serde(default)]
+    prebuilt: Option<bool>,
+}
+
+pub fn prebuilt_effective(manifest_prebuilt: bool) -> bool {
+    if let Ok(v) = std::env::var("RAANA_PREBUILT") {
+        return v == "1" || v.eq_ignore_ascii_case("true");
+    }
+    if let Some(config) = load_user_toml() {
+        if let Some(sdk) = config.sdk {
+            if let Some(prebuilt) = sdk.prebuilt {
+                return prebuilt;
+            }
+        }
+    }
+    manifest_prebuilt
 }
 
 #[derive(Debug, Deserialize)]
