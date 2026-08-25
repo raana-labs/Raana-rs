@@ -44,6 +44,14 @@ pub struct SdkConfig {
     pub rustc_path: Option<String>,
     #[serde(default, rename = "rust-image-target")]
     pub rust_image_target: Option<String>,
+    #[serde(default)]
+    pub prebuilt: bool,
+    #[serde(default, rename = "artifact-repo")]
+    pub artifact_repo: Option<String>,
+    #[serde(default, rename = "artifact-tag")]
+    pub artifact_tag: Option<String>,
+    #[serde(default)]
+    pub verify: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

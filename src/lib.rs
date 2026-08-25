@@ -643,7 +643,7 @@ pub fn build_from_manifest(
     if manifest.package.language == "c" {
         link_module_with_symvers(&paths, &manifest.package.name, None)?;
     } else {
-        ensure_rust_support(&paths, &manifest.sdk())?;
+        ensure_rust_support(&paths, manifest)?;
         compile_module(
             &paths,
             &manifest.package.name,
@@ -659,7 +659,7 @@ pub fn build_from_manifest(
     Ok(ko)
 }
 
-pub fn ensure_rust_support(paths: &BuildPaths, _sdk: &Sdk) -> Result<(), String> {
+pub fn ensure_rust_support(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String> {
     let dir = paths.host_rust_support_dir();
     if dir.join("rust_support.ko").exists() {
         return Ok(());
@@ -671,6 +671,11 @@ pub fn ensure_rust_support(paths: &BuildPaths, _sdk: &Sdk) -> Result<(), String>
             paths.target.name(),
             dir.display()
         ));
+    }
+
+    if manifest.sdk.prebuilt {
+        fetch_prebuilt(paths, manifest)?;
+        return Ok(());
     }
 
     let source = paths.project_root.join("deps/rust_support");
@@ -701,10 +706,87 @@ pub fn ensure_rust_support(paths: &BuildPaths, _sdk: &Sdk) -> Result<(), String>
     }
 
     Err(format!(
-        "rust_support artifacts missing for {} at {}\nset [sdk] runtime-dir or run `raana fetch`",
+        "rust_support artifacts missing for {} at {}\nset [sdk] runtime-dir, prebuilt, or run `raana fetch`",
         paths.target.name(),
         dir.display()
     ))
+}
+
+fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String> {
+    let repo = manifest
+        .sdk
+        .artifact_repo
+        .clone()
+        .unwrap_or_else(|| "Dere3046/RaanaSDK".to_string());
+    let tag = manifest
+        .sdk
+        .artifact_tag
+        .clone()
+        .unwrap_or_else(|| format!("rust-support-{}", manifest.sdk.rust_support));
+
+    let local_root = Path::new(&repo);
+    let src_dir = if local_root.exists() {
+        let candidates = [
+            local_root.join(&tag).join(paths.target.name()),
+            local_root.join(paths.target.name()),
+            local_root.to_path_buf(),
+        ];
+        candidates
+            .iter()
+            .find(|d| d.join("rust_support.ko").exists())
+            .cloned()
+            .ok_or_else(|| format!("prebuilt not found under local path {}", repo))?
+    } else {
+        let tmp = std::env::temp_dir().join(format!("raana-prebuilt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+        run_cmd(
+            "gh",
+            &[
+                "release",
+                "download",
+                &tag,
+                "--repo",
+                &repo,
+                "--dir",
+                tmp.to_str().ok_or("bad path")?,
+            ],
+            &paths.project_root,
+        )?;
+        let target_dir = tmp.join(paths.target.name());
+        if target_dir.join("rust_support.ko").exists() {
+            target_dir
+        } else if tmp.join("rust_support.ko").exists() {
+            tmp
+        } else {
+            return Err(format!(
+                "prebuilt artifact missing target {}",
+                paths.target.name()
+            ));
+        }
+    };
+
+    let verify = manifest.sdk.verify.unwrap_or(true);
+    if verify {
+        let meta = src_dir.join("artifact.json");
+        let content = std::fs::read_to_string(&meta)
+            .map_err(|e| format!("artifact.json missing in prebuilt: {}", e))?;
+        if !content.contains(&manifest.sdk.rust_support) {
+            return Err(format!(
+                "prebuilt rev mismatch: expected {}",
+                manifest.sdk.rust_support
+            ));
+        }
+    }
+
+    let dir = paths.host_rust_support_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let copy_src = format!("{}/.", src_dir.display());
+    run_cmd(
+        "cp",
+        &["-a", copy_src.as_str(), dir.to_str().ok_or("bad path")?],
+        &paths.project_root,
+    )
 }
 
 fn sync_makefile(manifest: &Manifest, project_root: &Path) -> Result<(), String> {
