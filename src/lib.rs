@@ -486,6 +486,12 @@ pub fn compile_module(
     let obj = out_dir.join(format!("{}_rust.o", module_name));
     rename_entry_points(&obj, module_name)?;
     apply_aliases_with_chunk(&obj, &paths.host_sym_map(), paths.runtime.objcopy_chunk)?;
+
+    let cmd_path = out_dir.join(format!(".{}_rust.o.cmd", module_name));
+    if !cmd_path.exists() {
+        std::fs::write(&cmd_path, "").map_err(|e| e.to_string())?;
+    }
+
     Ok(obj)
 }
 

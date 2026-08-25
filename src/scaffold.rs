@@ -111,7 +111,7 @@ fn makefile_with_deps(
     };
 
     Ok(format!(
-        "# SPDX-License-Identifier: GPL-2.0-only\n\nobj-m := {name}.o\n\nKDIR := $(KDIR)\nMDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))\nODIR := $(MDIR)/out/$(VER)\n\n{name}-y := {objs_line}\n\nccflags-y += -std=gnu11\nccflags-y += -Wno-declaration-after-statement\nccflags-y += -Wno-unused-variable\nccflags-y += -Wno-unused-function\nccflags-y += -Wno-strict-prototypes\n{includes_lines}\n\nall:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) modules\nclean:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) clean\n\n$(obj)/%.o: $(src)/%.c $(recordmcount_source) FORCE\n\t$(call if_changed_rule,cc_o_c)\n\t$(call cmd,force_checksrc)\n",
+        "# SPDX-License-Identifier: GPL-2.0-only\n\nobj-m := {name}.o\n\nKDIR := $(KDIR)\nMDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))\nODIR := $(MDIR)/out/$(VER)\n\n{name}-y := {objs_line}\n\nccflags-y += -std=gnu11\nccflags-y += -Wno-declaration-after-statement\nccflags-y += -Wno-unused-variable\nccflags-y += -Wno-unused-function\nccflags-y += -Wno-strict-prototypes\n{includes_lines}\n\n$(info -- KDIR: $(KDIR))\n$(info -- MDIR: $(MDIR))\n$(info -- ODIR: $(ODIR))\n\nall:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) modules\nclean:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) clean\n\n$(obj)/%.o: $(src)/%.c $(recordmcount_source) FORCE\n\t$(call if_changed_rule,cc_o_c)\n\t$(call cmd,force_checksrc)\n",
         name = name,
         objs_line = objs_line,
         includes_lines = includes_lines
@@ -149,7 +149,7 @@ fn makefile_c_with_deps(
     };
 
     Ok(format!(
-        "# SPDX-License-Identifier: GPL-2.0-only\n\nobj-m := {name}.o\n\nKDIR := $(KDIR)\nMDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))\nODIR := $(MDIR)/out/$(VER)\n\n{name}-y := {objs_line}\n\nccflags-y += -std=gnu11\nccflags-y += -Wno-declaration-after-statement\nccflags-y += -Wno-unused-variable\nccflags-y += -Wno-unused-function\nccflags-y += -Wno-strict-prototypes\n{includes_lines}\n\nall:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) modules\nclean:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) clean\n\n$(obj)/%.o: $(src)/%.c $(recordmcount_source) FORCE\n\t$(call if_changed_rule,cc_o_c)\n\t$(call cmd,force_checksrc)\n",
+        "# SPDX-License-Identifier: GPL-2.0-only\n\nobj-m := {name}.o\n\nKDIR := $(KDIR)\nMDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))\nODIR := $(MDIR)/out/$(VER)\n\n{name}-y := {objs_line}\n\nccflags-y += -std=gnu11\nccflags-y += -Wno-declaration-after-statement\nccflags-y += -Wno-unused-variable\nccflags-y += -Wno-unused-function\nccflags-y += -Wno-strict-prototypes\n{includes_lines}\n\n$(info -- KDIR: $(KDIR))\n$(info -- MDIR: $(MDIR))\n$(info -- ODIR: $(ODIR))\n\nall:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) modules\nclean:\n\tmake -C $(KDIR) M=$(ODIR) src=$(MDIR) clean\n\n$(obj)/%.o: $(src)/%.c $(recordmcount_source) FORCE\n\t$(call if_changed_rule,cc_o_c)\n\t$(call cmd,force_checksrc)\n",
         name = name,
         objs_line = objs_line,
         includes_lines = includes_lines
@@ -248,7 +248,7 @@ fn lib_rs(name: &str, module_type: &str, cfg: &ScaffoldConfig) -> String {
 fn wrapper_c(name: &str, crate_name: &str, cfg: &ScaffoldConfig) -> String {
     let header = cfg.render_c(name);
     format!(
-        "{header}\n#include <linux/init.h>\n#include <linux/module.h>\n\nextern int rust_{crate_name}_init_module(void);\nextern void rust_{crate_name}_cleanup_module(void);\n\nint __init init_module(void)\n{{\n\treturn rust_{crate_name}_init_module();\n}}\n\nvoid __exit cleanup_module(void)\n{{\n\trust_{crate_name}_cleanup_module();\n}}\n\n/*\n * old CFI needs __cfi_jt_* jump table entries\n * module_init/module_exit macros emit them\n * manual wrapper must add them\n */\n__CFI_ADDRESSABLE(init_module, __initdata);\n__CFI_ADDRESSABLE(cleanup_module, __exitdata);\n",
+        "{header}\n#include <linux/init.h>\n#include <linux/module.h>\n\nextern int rust_{crate_name}_init_module(void);\nextern void rust_{crate_name}_cleanup_module(void);\n\nint __init init_module(void)\n{{\n\treturn rust_{crate_name}_init_module();\n}}\n\nvoid __exit cleanup_module(void)\n{{\n\trust_{crate_name}_cleanup_module();\n}}\n\n/*\n * old CFI needs __cfi_jt_* jump table entries\n * module_init/module_exit macros emit them\n * manual wrapper must add them\n */\n#ifdef __CFI_ADDRESSABLE\n__CFI_ADDRESSABLE(init_module, __initdata);\n__CFI_ADDRESSABLE(cleanup_module, __exitdata);\n#endif\n",
         crate_name = crate_name
     )
 }

@@ -24,5 +24,7 @@ void __exit cleanup_module(void)
  * module_init/module_exit macros emit them
  * manual wrapper must add them
  */
+#ifdef __CFI_ADDRESSABLE
 __CFI_ADDRESSABLE(init_module, __initdata);
 __CFI_ADDRESSABLE(cleanup_module, __exitdata);
+#endif
