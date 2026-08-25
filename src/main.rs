@@ -95,13 +95,11 @@ fn build_with_flags(args: &[String]) -> Result<(), String> {
         .ok_or_else(|| format!("unknown target {}", target_name))?;
     let project = find_arg(args, "--project")
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from("/home/Dere3046/code/devLKM/rust_support/RANASL/test/rust_hello")
-        });
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let cache = find_arg(args, "--cache")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/home/Dere3046/code/devLKM/rust_support/raana/.cache"));
-    let module = find_arg(args, "--module").unwrap_or_else(|| "hello_rust".to_string());
+        .unwrap_or_else(|| project.join(raana::config::DEFAULT_CACHE_DIR));
+    let module = find_arg(args, "--module").unwrap_or_else(|| "mymod".to_string());
     let rust_src = find_arg(args, "--rust-src").unwrap_or_else(|| "src/lib.rs".to_string());
     let kunit = has_flag(args, "--kunit");
 
