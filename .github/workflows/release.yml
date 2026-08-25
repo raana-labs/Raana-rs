@@ -21,6 +21,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: git clone https://github.com/Dere3046/RaanaSDK.git rust_support
       - run: git -C rust_support checkout dc55b5e7b25df374a8d446a5f9e4c73d3e818a38
+      - run: |
+          cd rust_support
+          SDKREV=$(cat .sdk-version)
+          git clone https://github.com/Dere3046/KMSDK.git .sdk
+          git -C .sdk checkout "$SDKREV"
+          ./.sdk/scripts/sdk install
       - run: cd rust_support && ./scripts/build-ddkk.sh ${{ matrix.kmi }}
       - run: echo '{"rev":"dc55b5e7b25df374a8d446a5f9e4c73d3e818a38","target":"${{ matrix.kmi }}"}' > rust_support/out/${{ matrix.kmi }}/artifact.json
       - run: tar -C rust_support/out/${{ matrix.kmi }} -czf rust-support-${{ matrix.kmi }}.tar.gz .
