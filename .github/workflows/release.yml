@@ -28,8 +28,11 @@ jobs:
           git -C .sdk checkout "$SDKREV"
           ./.sdk/scripts/sdk install
       - run: cd rust_support && ./scripts/build-ddkk.sh ${{ matrix.kmi }}
-      - run: echo '{"rev":"dc55b5e7b25df374a8d446a5f9e4c73d3e818a38","target":"${{ matrix.kmi }}"}' > rust_support/out/${{ matrix.kmi }}/artifact.json
-      - run: tar -C rust_support/out/${{ matrix.kmi }} -czf rust-support-${{ matrix.kmi }}.tar.gz .
+      - run: |
+          mkdir -p artifact-staging/${{ matrix.kmi }}
+          cp -a rust_support/out/${{ matrix.kmi }}/. artifact-staging/${{ matrix.kmi }}/
+          echo '{"rev":"dc55b5e7b25df374a8d446a5f9e4c73d3e818a38","target":"${{ matrix.kmi }}"}' > artifact-staging/${{ matrix.kmi }}/artifact.json
+          tar -C artifact-staging/${{ matrix.kmi }} -czf rust-support-${{ matrix.kmi }}.tar.gz .
       - uses: softprops/action-gh-release@v2
         with:
           files: rust-support-${{ matrix.kmi }}.tar.gz
