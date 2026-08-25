@@ -25,7 +25,7 @@ fn print_targets() {
 }
 
 fn print_usage() {
-    println!("usage: raana <targets|fetch|install|sdk|doctor|new|build>");
+    println!("usage: raana <targets|fetch|install|sdk|doctor|clean|new|build>");
     println!("  sdk <args...>");
     println!("  doctor");
     println!("  new [--c] [--author NAME] [--email EMAIL] [--year YEAR] [--license SPDX]");
@@ -209,6 +209,55 @@ fn run_doctor() -> Result<(), String> {
     Ok(())
 }
 
+fn run_clean(args: &[String]) -> Result<(), String> {
+    let project = if let Some(path) = find_arg(args, "--manifest") {
+        let path = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
+        path.parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf()
+    } else {
+        std::env::current_dir().map_err(|e| e.to_string())?
+    };
+
+    let manifest_path = project.join("lkm.toml");
+    let manifest = if manifest_path.exists() {
+        Manifest::load(&manifest_path).ok()
+    } else {
+        None
+    };
+
+    let cache_dir = manifest
+        .as_ref()
+        .map(|m| project.join(&m.build.cache))
+        .unwrap_or_else(|| project.join(raana::config::DEFAULT_CACHE_DIR));
+    let rust_support_cache = cache_dir.join("rust_support");
+
+    if rust_support_cache.exists() {
+        if let Some(manifest) = &manifest {
+            let keep = manifest.sdk.rust_support.clone();
+            for entry in std::fs::read_dir(&rust_support_cache).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name != keep && entry.path().is_dir() {
+                    std::fs::remove_dir_all(entry.path()).map_err(|e| e.to_string())?;
+                    println!("removed cache rev {}", name);
+                }
+            }
+        } else {
+            std::fs::remove_dir_all(&rust_support_cache).map_err(|e| e.to_string())?;
+            println!("removed rust_support cache");
+        }
+    }
+
+    let stamp_dir = project.join(".raana_cache");
+    if stamp_dir.exists() {
+        std::fs::remove_dir_all(&stamp_dir).map_err(|e| e.to_string())?;
+        println!("removed stamp cache");
+    }
+
+    Ok(())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("");
@@ -291,6 +340,12 @@ fn main() {
         "doctor" => {
             if let Err(e) = run_doctor() {
                 eprintln!("doctor failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        "clean" => {
+            if let Err(e) = run_clean(&args[1..]) {
+                eprintln!("clean failed: {}", e);
                 std::process::exit(1);
             }
         }

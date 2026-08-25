@@ -1,8 +1,8 @@
-name: Release
+name: Release Runtime
 
 on:
   push:
-    tags: ['v*']
+    tags: ['rust-support-*']
 
 jobs:
   build-runtime:
@@ -19,8 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - id: rev
+        run: echo "rev=$(cat rust-support.rev)" >> "$GITHUB_OUTPUT"
       - run: git clone https://github.com/Dere3046/RaanaSDK.git rust_support
-      - run: git -C rust_support checkout dc55b5e7b25df374a8d446a5f9e4c73d3e818a38
+      - run: git -C rust_support checkout ${{ steps.rev.outputs.rev }}
       - run: |
           cd rust_support
           SDKREV=$(cat .sdk-version)
@@ -31,7 +33,7 @@ jobs:
       - run: |
           mkdir -p artifact-staging/${{ matrix.kmi }}
           cp -a rust_support/out/${{ matrix.kmi }}/. artifact-staging/${{ matrix.kmi }}/
-          echo '{"rev":"dc55b5e7b25df374a8d446a5f9e4c73d3e818a38","target":"${{ matrix.kmi }}"}' > artifact-staging/${{ matrix.kmi }}/artifact.json
+          echo "{\"rev\":\"${{ steps.rev.outputs.rev }}\",\"target\":\"${{ matrix.kmi }}\"}" > artifact-staging/${{ matrix.kmi }}/artifact.json
           tar -C artifact-staging/${{ matrix.kmi }} -czf rust-support-${{ matrix.kmi }}.tar.gz .
       - uses: softprops/action-gh-release@v2
         with:

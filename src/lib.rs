@@ -731,11 +731,37 @@ fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String>
             local_root.join(paths.target.name()),
             local_root.to_path_buf(),
         ];
-        candidates
+        let dir = candidates
             .iter()
             .find(|d| d.join("rust_support.ko").exists())
-            .cloned()
-            .ok_or_else(|| format!("prebuilt not found under local path {}", repo))?
+            .cloned();
+
+        if let Some(dir) = dir {
+            dir
+        } else {
+            let asset = format!("rust-support-{}.tar.gz", paths.target.name());
+            let tarball = [local_root.join(&tag).join(&asset), local_root.join(&asset)]
+                .iter()
+                .find(|p| p.exists())
+                .cloned()
+                .ok_or_else(|| format!("prebuilt not found under local path {}", repo))?;
+
+            let tmp = std::env::temp_dir().join(format!("raana-prebuilt-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            let extract = tmp.join("extract");
+            std::fs::create_dir_all(&extract).map_err(|e| e.to_string())?;
+            run_cmd(
+                "tar",
+                &[
+                    "-xzf",
+                    tarball.to_str().ok_or("bad path")?,
+                    "-C",
+                    extract.to_str().ok_or("bad path")?,
+                ],
+                &paths.project_root,
+            )?;
+            extract
+        }
     } else {
         let tmp = std::env::temp_dir().join(format!("raana-prebuilt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
