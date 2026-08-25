@@ -740,6 +740,8 @@ fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String>
         let tmp = std::env::temp_dir().join(format!("raana-prebuilt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+
+        let asset = format!("rust-support-{}.tar.gz", paths.target.name());
         run_cmd(
             "gh",
             &[
@@ -748,22 +750,33 @@ fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String>
                 &tag,
                 "--repo",
                 &repo,
+                "--pattern",
+                &asset,
                 "--dir",
                 tmp.to_str().ok_or("bad path")?,
             ],
             &paths.project_root,
         )?;
-        let target_dir = tmp.join(paths.target.name());
-        if target_dir.join("rust_support.ko").exists() {
-            target_dir
-        } else if tmp.join("rust_support.ko").exists() {
-            tmp
-        } else {
-            return Err(format!(
-                "prebuilt artifact missing target {}",
-                paths.target.name()
-            ));
+
+        let tarball = tmp.join(&asset);
+        if !tarball.exists() {
+            return Err(format!("prebuilt asset {} not found", asset));
         }
+
+        let extract = tmp.join("extract");
+        std::fs::create_dir_all(&extract).map_err(|e| e.to_string())?;
+        run_cmd(
+            "tar",
+            &[
+                "-xzf",
+                tarball.to_str().ok_or("bad path")?,
+                "-C",
+                extract.to_str().ok_or("bad path")?,
+            ],
+            &paths.project_root,
+        )?;
+
+        extract
     };
 
     let verify = manifest.sdk.verify.unwrap_or(true);
