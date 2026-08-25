@@ -661,7 +661,7 @@ pub fn build_from_manifest(
 
 pub fn ensure_rust_support(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String> {
     let dir = paths.host_rust_support_dir();
-    if dir.join("rust_support.ko").exists() {
+    if rust_support_cache_valid(paths) {
         return Ok(());
     }
 
@@ -675,6 +675,9 @@ pub fn ensure_rust_support(paths: &BuildPaths, manifest: &Manifest) -> Result<()
 
     if config::prebuilt_effective(manifest.sdk.prebuilt) {
         fetch_prebuilt(paths, manifest)?;
+        if !rust_support_cache_valid(paths) {
+            return Err(format!("prebuilt cache incomplete at {}", dir.display()));
+        }
         return Ok(());
     }
 
@@ -701,6 +704,9 @@ pub fn ensure_rust_support(paths: &BuildPaths, manifest: &Manifest) -> Result<()
                 &["-a", copy_src.as_str(), dir.to_str().ok_or("bad path")?],
                 &paths.project_root,
             )?;
+            if !rust_support_cache_valid(paths) {
+                return Err(format!("local build cache incomplete at {}", dir.display()));
+            }
             return Ok(());
         }
     }
@@ -710,6 +716,25 @@ pub fn ensure_rust_support(paths: &BuildPaths, manifest: &Manifest) -> Result<()
         paths.target.name(),
         dir.display()
     ))
+}
+
+fn rust_support_cache_valid(paths: &BuildPaths) -> bool {
+    let dir = paths.host_rust_support_dir();
+    let required = [
+        dir.join("rust_support.ko"),
+        dir.join("Module.symvers"),
+        dir.join("rust/libcore.rmeta"),
+        dir.join("rust/libcompiler_builtins.rmeta"),
+        dir.join("rust/libkernel.rmeta"),
+        dir.join("rust/libmacros.so"),
+    ];
+    if required.iter().any(|p| !p.exists()) {
+        return false;
+    }
+    if paths.target.short_alias() && !dir.join("rust_sym_map.txt").exists() {
+        return false;
+    }
+    true
 }
 
 fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String> {
