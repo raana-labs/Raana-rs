@@ -742,7 +742,7 @@ fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String>
         .sdk
         .artifact_repo
         .clone()
-        .unwrap_or_else(|| "Dere3046/RaanaSDK".to_string());
+        .unwrap_or_else(|| "raana-labs/raana".to_string());
     let tag = manifest
         .sdk
         .artifact_tag
