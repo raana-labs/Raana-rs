@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde_json::Value;
+
 pub mod config;
 pub mod manifest;
 pub mod scaffold;
@@ -737,41 +739,206 @@ fn rust_support_cache_valid(paths: &BuildPaths) -> bool {
     true
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArtifactMatch {
+    Version,
+    Rev,
+    Exact,
+}
+
+impl ArtifactMatch {
+    fn from_manifest(manifest: &Manifest) -> ArtifactMatch {
+        match manifest.sdk.artifact_match.as_deref().map(str::trim) {
+            Some("version") => ArtifactMatch::Version,
+            Some("rev") => ArtifactMatch::Rev,
+            _ => ArtifactMatch::Exact,
+        }
+    }
+
+    fn exact_tag(&self, version: &str, rev: &str) -> String {
+        format!("rust-support-v{}-{}", version, rev)
+    }
+
+    fn matches(&self, tag: &str, version: &str, rev: &str) -> bool {
+        match self {
+            ArtifactMatch::Version => {
+                tag == format!("rust-support-v{}", version)
+                    || tag.starts_with(&format!("rust-support-v{}-", version))
+            }
+            ArtifactMatch::Rev => tag.contains(rev),
+            ArtifactMatch::Exact => tag == self.exact_tag(version, rev),
+        }
+    }
+
+    fn describe(&self) -> &'static str {
+        match self {
+            ArtifactMatch::Version => "version",
+            ArtifactMatch::Rev => "rev",
+            ArtifactMatch::Exact => "exact version+rev",
+        }
+    }
+}
+
+fn github_api_json(url: &str) -> Result<Value, String> {
+    let resp = ureq::get(url)
+        .set("User-Agent", "raana")
+        .call()
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
+    resp.into_json::<Value>()
+        .map_err(|e| format!("parse JSON failed: {}", e))
+}
+
+fn resolve_remote_tag(
+    repo: &str,
+    matcher: ArtifactMatch,
+    version: &str,
+    rev: &str,
+) -> Result<String, String> {
+    if matcher == ArtifactMatch::Exact {
+        return Ok(matcher.exact_tag(version, rev));
+    }
+
+    let url = format!(
+        "https://api.github.com/repos/{}/releases?per_page=100",
+        repo
+    );
+    let value = github_api_json(&url)?;
+    let releases = value
+        .as_array()
+        .ok_or_else(|| "GitHub releases response is not an array".to_string())?;
+
+    let mut matched: Vec<(String, String)> = Vec::new();
+    for rel in releases {
+        let tag = rel
+            .get("tag_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "release missing tag_name".to_string())?;
+        if matcher.matches(tag, version, rev) {
+            let published = rel
+                .get("published_at")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            matched.push((published, tag.to_string()));
+        }
+    }
+
+    matched.sort_by(|a, b| b.0.cmp(&a.0));
+    matched
+        .into_iter()
+        .next()
+        .map(|(_, tag)| tag)
+        .ok_or_else(|| {
+            format!(
+                "no release matches {} (version={}, rev={})",
+                matcher.describe(),
+                version,
+                rev
+            )
+        })
+}
+
+fn download_release_asset(
+    repo: &str,
+    tag: &str,
+    asset: &str,
+    dest_dir: &Path,
+) -> Result<(), String> {
+    let url = format!(
+        "https://github.com/{}/releases/download/{}/{}",
+        repo, tag, asset
+    );
+    let resp = ureq::get(&url)
+        .set("User-Agent", "raana")
+        .call()
+        .map_err(|e| format!("download {} failed: {}", asset, e))?;
+    let mut reader = resp.into_reader();
+    let dest = dest_dir.join(asset);
+    let mut file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+    std::io::copy(&mut reader, &mut file).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn matching_local_tag_dirs(
+    local_root: &Path,
+    matcher: ArtifactMatch,
+    version: &str,
+    rev: &str,
+) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(local_root) {
+        for entry in entries.flatten() {
+            let Ok(ft) = entry.file_type() else {
+                continue;
+            };
+            if !ft.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if matcher.matches(&name, version, rev) {
+                out.push(entry.path());
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String> {
     let repo = manifest
         .sdk
         .artifact_repo
         .clone()
         .unwrap_or_else(|| "raana-labs/raana".to_string());
-    let tag = manifest.sdk.artifact_tag.clone().unwrap_or_else(|| {
-        format!(
-            "rust-support-v{}-{}",
-            env!("CARGO_PKG_VERSION"),
-            manifest.sdk.rust_support
-        )
-    });
+    let matcher = ArtifactMatch::from_manifest(manifest);
+    let version = env!("CARGO_PKG_VERSION");
+    let rev = manifest.sdk.rust_support.trim();
 
     let local_root = Path::new(&repo);
     let src_dir = if local_root.exists() {
-        let candidates = [
-            local_root.join(&tag).join(paths.target.name()),
-            local_root.join(paths.target.name()),
-            local_root.to_path_buf(),
-        ];
-        let dir = candidates
-            .iter()
-            .find(|d| d.join("rust_support.ko").exists())
-            .cloned();
+        let tag_dirs: Vec<PathBuf> = if let Some(tag) = &manifest.sdk.artifact_tag {
+            vec![local_root.join(tag)]
+        } else if matcher == ArtifactMatch::Exact {
+            vec![local_root.join(matcher.exact_tag(version, rev))]
+        } else {
+            matching_local_tag_dirs(local_root, matcher, version, rev)
+        };
+
+        let mut dir = None;
+        for tag_dir in &tag_dirs {
+            let candidates = [tag_dir.join(paths.target.name()), tag_dir.clone()];
+            if let Some(d) = candidates
+                .iter()
+                .find(|d| d.join("rust_support.ko").exists())
+            {
+                dir = Some(d.clone());
+                break;
+            }
+        }
 
         if let Some(dir) = dir {
             dir
         } else {
             let asset = format!("rust-support-{}.tar.gz", paths.target.name());
-            let tarball = [local_root.join(&tag).join(&asset), local_root.join(&asset)]
-                .iter()
-                .find(|p| p.exists())
-                .cloned()
-                .ok_or_else(|| format!("prebuilt not found under local path {}", repo))?;
+            let mut tarball = None;
+            for tag_dir in &tag_dirs {
+                let candidates = [
+                    tag_dir.join(&asset),
+                    tag_dir.join(paths.target.name()).join(&asset),
+                ];
+                if let Some(p) = candidates.iter().find(|p| p.exists()) {
+                    tarball = Some(p.clone());
+                    break;
+                }
+            }
+            if tarball.is_none() {
+                let root_asset = local_root.join(&asset);
+                if root_asset.exists() {
+                    tarball = Some(root_asset);
+                }
+            }
+            let tarball =
+                tarball.ok_or_else(|| format!("prebuilt not found under local path {}", repo))?;
 
             let tmp = std::env::temp_dir().join(format!("raana-prebuilt-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&tmp);
@@ -790,26 +957,20 @@ fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String>
             extract
         }
     } else {
+        let tag = if let Some(tag) = &manifest.sdk.artifact_tag {
+            tag.clone()
+        } else if matcher == ArtifactMatch::Exact {
+            matcher.exact_tag(version, rev)
+        } else {
+            resolve_remote_tag(&repo, matcher, version, rev)?
+        };
+
         let tmp = std::env::temp_dir().join(format!("raana-prebuilt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
 
         let asset = format!("rust-support-{}.tar.gz", paths.target.name());
-        run_cmd(
-            "gh",
-            &[
-                "release",
-                "download",
-                &tag,
-                "--repo",
-                &repo,
-                "--pattern",
-                &asset,
-                "--dir",
-                tmp.to_str().ok_or("bad path")?,
-            ],
-            &paths.project_root,
-        )?;
+        download_release_asset(&repo, &tag, &asset, &tmp)?;
 
         let tarball = tmp.join(&asset);
         if !tarball.exists() {
@@ -837,11 +998,8 @@ fn fetch_prebuilt(paths: &BuildPaths, manifest: &Manifest) -> Result<(), String>
         let meta = src_dir.join("artifact.json");
         let content = std::fs::read_to_string(&meta)
             .map_err(|e| format!("artifact.json missing in prebuilt: {}", e))?;
-        if !content.contains(&manifest.sdk.rust_support) {
-            return Err(format!(
-                "prebuilt rev mismatch: expected {}",
-                manifest.sdk.rust_support
-            ));
+        if !content.contains(rev) {
+            return Err(format!("prebuilt rev mismatch: expected {}", rev));
         }
     }
 

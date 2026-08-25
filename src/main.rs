@@ -32,6 +32,7 @@ fn print_usage() {
     println!("      [--header-file PATH] [--header-c-file PATH] [--header-rust-file PATH] <name>");
     println!("  build [--manifest PATH] [--target NAME] [--project DIR] [--cache DIR]");
     println!("        [--module NAME] [--rust-src REL] [--kunit] [--docker|--host]");
+    println!("        [--artifact-match version|rev]");
 }
 
 fn find_arg(args: &[String], name: &str) -> Option<String> {
@@ -70,7 +71,13 @@ fn build_with_flags(args: &[String]) -> Result<(), String> {
     let manifest_path = find_arg(args, "--manifest");
     if let Some(path) = manifest_path {
         let path = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
-        let manifest = Manifest::load(&path)?;
+        let mut manifest = Manifest::load(&path)?;
+        if let Some(m) = find_arg(args, "--artifact-match") {
+            if m != "version" && m != "rev" {
+                return Err("--artifact-match must be version or rev".to_string());
+            }
+            manifest.sdk.artifact_match = Some(m);
+        }
         let project = path
             .parent()
             .unwrap_or_else(|| Path::new("."))

@@ -50,6 +50,8 @@ pub struct SdkConfig {
     pub artifact_repo: Option<String>,
     #[serde(default, rename = "artifact-tag")]
     pub artifact_tag: Option<String>,
+    #[serde(default, rename = "artifact-match")]
+    pub artifact_match: Option<String>,
     #[serde(default)]
     pub verify: Option<bool>,
 }
